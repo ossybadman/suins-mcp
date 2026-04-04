@@ -8,16 +8,18 @@ MCP server for Sui Name Service. Lets AI agents resolve `.sui` names, look up id
 
 ### Option A: Direct Integration (Remote MCP)
 
-Use the MCP endpoint directly in any MCP-compatible client:
+If your client supports adding a remote MCP server, use these details:
 
-https://suins-mcp-production.up.railway.app/mcp
+- **Server Name:** `suins-mcp`
+- **URL:** `https://suins-mcp-production.up.railway.app/mcp`
 
 ---
 
 ### Option B: Using Cursor
 
-Add the server to your MCP configuration:
+Add to your MCP configuration file:
 
+```json
 {
   "mcpServers": {
     "suins": {
@@ -26,14 +28,17 @@ Add the server to your MCP configuration:
     }
   }
 }
+```
 
 ---
 
 ### Option C: Using Claude Code
 
-Add the server via CLI:
+Run this command in your terminal:
 
-claude mcp add --transport http suins https://suins-mcp-production.up.railway.app/mcp
+```bash
+claude mcp add --transport http suins-mcp https://suins-mcp-production.up.railway.app/mcp
+```
 
 ---
 
