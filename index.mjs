@@ -308,7 +308,7 @@ const port = parseInt(process.env.PORT || '3000');
 const httpServer = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', name: 'suins-mcp', version: '2.0.0' }));
+        res.end(JSON.stringify({ status: 'ok', name: 'suins-mcp', version: '1.0.0' }));
         return;
     }
 
