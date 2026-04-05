@@ -111,12 +111,11 @@ function createServer() {
     {
         name: z.string(),
         years: z.number().min(1).max(5),
-        coin: z.string(),
-        coinType: z.enum(['USDC', 'SUI', 'NS']),
+        coinType: z.enum(['USDC', 'SUI', 'NS']).default('USDC'),
         recipient: z.string(),
         sender: z.string(),
     },
-    async ({ name, years, coin, coinType, recipient, sender }) => {
+    async ({ name, years, coinType, recipient, sender }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
@@ -126,6 +125,31 @@ function createServer() {
             let priceInfoObjectId;
             if (coinType !== 'USDC') {
                 priceInfoObjectId = (await suinsClient.getPriceInfoObject(tx, coinConfig.feed))[0];
+            }
+
+            // Auto-fetch coin based on coinType
+            let coin;
+            if (coinType === 'SUI') {
+                // For SUI, use gas coin directly - SDK handles splitting internally
+                coin = tx.gas;
+            } else {
+                // For USDC/NS, fetch from wallet
+                const coins = await suiClient.getCoins({ owner: sender, coinType: coinConfig.type });
+                const best = coins.data.sort((a, b) => Number(b.balance) - Number(a.balance))[0];
+                if (!best) {
+                    return mcpResponse({ error: `No ${coinType} coins found in sender wallet` });
+                }
+                // Validate balance
+                const priceList = await suinsClient.getPriceList();
+                const nameLen = name.replace('.sui', '').length;
+                const priceKey = nameLen <= 3 ? '3,3' : nameLen === 4 ? '4,4' : '5,63';
+                const requiredMist = [...priceList].find(([k]) => k.join(',') === priceKey)?.[1] * years;
+                if (Number(best.balance) < Number(requiredMist)) {
+                    return mcpResponse({
+                        error: `Insufficient ${coinType} balance. Wallet has ${Number(best.balance) / 1_000_000} ${coinType}, need ${Number(requiredMist) / 1_000_000} ${coinType}`,
+                    });
+                }
+                coin = best.coinObjectId;
             }
 
             const nft = suinsTx.register({
@@ -152,13 +176,12 @@ function createServer() {
         name: z.string(),
         nftId: z.string(),
         years: z.number().min(1).max(5),
-        coin: z.string(),
-        coinType: z.enum(['USDC', 'SUI', 'NS']),
+        coinType: z.enum(['USDC', 'SUI', 'NS']).default('USDC'),
         sender: z.string(),
         kioskId: z.string().optional(),
         kioskOwnerCapId: z.string().optional(),
     },
-    async ({ nftId, years, coin, coinType, sender, kioskId, kioskOwnerCapId }) => {
+    async ({ name, nftId, years, coinType, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
@@ -168,6 +191,31 @@ function createServer() {
             let priceInfoObjectId;
             if (coinType !== 'USDC') {
                 priceInfoObjectId = (await suinsClient.getPriceInfoObject(tx, coinConfig.feed))[0];
+            }
+
+            // Auto-fetch coin based on coinType
+            let coin;
+            if (coinType === 'SUI') {
+                // For SUI, use gas coin directly - SDK handles splitting internally
+                coin = tx.gas;
+            } else {
+                // For USDC/NS, fetch from wallet
+                const coins = await suiClient.getCoins({ owner: sender, coinType: coinConfig.type });
+                const best = coins.data.sort((a, b) => Number(b.balance) - Number(a.balance))[0];
+                if (!best) {
+                    return mcpResponse({ error: `No ${coinType} coins found in sender wallet` });
+                }
+                // Validate balance using renewal pricing
+                const priceList = await suinsClient.getRenewalPriceList();
+                const nameLen = name.replace('.sui', '').length;
+                const priceKey = nameLen <= 3 ? '3,3' : nameLen === 4 ? '4,4' : '5,63';
+                const requiredMist = [...priceList].find(([k]) => k.join(',') === priceKey)?.[1] * years;
+                if (Number(best.balance) < Number(requiredMist)) {
+                    return mcpResponse({
+                        error: `Insufficient ${coinType} balance. Wallet has ${Number(best.balance) / 1_000_000} ${coinType}, need ${Number(requiredMist) / 1_000_000} ${coinType}`,
+                    });
+                }
+                coin = best.coinObjectId;
             }
 
             // Handle kiosk-owned NFTs
