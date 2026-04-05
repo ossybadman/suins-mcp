@@ -8,11 +8,19 @@
   "scripts": {
     "start": "node index.mjs"
   },
-  "keywords": ["sui", "suins", "mcp", "blockchain", "identity", "web3"],
+  "keywords": [
+    "sui",
+    "suins",
+    "mcp",
+    "blockchain",
+    "identity",
+    "web3"
+  ],
   "author": "ossybadman",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mysten/kiosk": "^1.2.0",
     "@mysten/sui": "^2.14.1",
     "@mysten/suins": "^1.0.2",
     "zod": "^4.3.6"

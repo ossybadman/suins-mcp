@@ -7,9 +7,13 @@ import { z } from 'zod';
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import { SuinsClient, SuinsTransaction, ALLOWED_METADATA } from '@mysten/suins';
 import { Transaction } from '@mysten/sui/transactions';
+import { kiosk, KioskTransaction } from '@mysten/kiosk';
 
-const suiClient = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl('mainnet') });
+const suiClient = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl('mainnet') }).$extend(kiosk());
 const suinsClient = new SuinsClient({ client: suiClient, network: 'mainnet' });
+
+// SuiNS NFT type for kiosk operations
+const SUINS_NFT_TYPE = `${suinsClient.config.packageIdV1}::registration::SuinsRegistration`;
 
 function createServer() {
     const server = new McpServer({ name: 'suins-mcp', version: '1.0.1' });
@@ -151,8 +155,10 @@ function createServer() {
         coin: z.string(),
         coinType: z.enum(['USDC', 'SUI', 'NS']),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ nftId, years, coin, coinType, sender }) => {
+    async ({ nftId, years, coin, coinType, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
@@ -164,13 +170,31 @@ function createServer() {
                 priceInfoObjectId = (await suinsClient.getPriceInfoObject(tx, coinConfig.feed))[0];
             }
 
+            // Handle kiosk-owned NFTs
+            let nftArg = nftId;
+            let kioskTx;
+            let borrowPromise;
+            if (kioskId && kioskOwnerCapId) {
+                kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                const [borrowedNft, promise] = kioskTx.borrow({ itemType: SUINS_NFT_TYPE, itemId: nftId });
+                nftArg = borrowedNft;
+                borrowPromise = promise;
+            }
+
             suinsTx.renew({
-                nft: nftId,
+                nft: nftArg,
                 years,
                 coinConfig,
                 coin,
                 ...(priceInfoObjectId && { priceInfoObjectId }),
             });
+
+            // Return NFT to kiosk if borrowed
+            if (kioskTx && borrowPromise) {
+                kioskTx.return({ itemType: SUINS_NFT_TYPE, item: nftArg, promise: borrowPromise });
+                kioskTx.finalize();
+            }
 
             const txBytes = await tx.build({ client: suiClient });
 
@@ -223,18 +247,38 @@ function createServer() {
         parentNftId: z.string(),
         targetAddress: z.string(),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ subname, parentNftId, targetAddress, sender }) => {
+    async ({ subname, parentNftId, targetAddress, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
+            // Handle kiosk-owned NFTs
+            let parentNftArg = parentNftId;
+            let kioskTx;
+            let borrowPromise;
+            if (kioskId && kioskOwnerCapId) {
+                kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                const [borrowedNft, promise] = kioskTx.borrow({ itemType: SUINS_NFT_TYPE, itemId: parentNftId });
+                parentNftArg = borrowedNft;
+                borrowPromise = promise;
+            }
+
             suinsTx.createLeafSubName({
-                parentNft: parentNftId,
+                parentNft: parentNftArg,
                 name: subname,
                 targetAddress,
             });
+
+            // Return NFT to kiosk if borrowed
+            if (kioskTx && borrowPromise) {
+                kioskTx.return({ itemType: SUINS_NFT_TYPE, item: parentNftArg, promise: borrowPromise });
+                kioskTx.finalize();
+            }
 
             const txBytes = await tx.build({ client: suiClient });
 
@@ -251,17 +295,37 @@ function createServer() {
         subname: z.string(),
         parentNftId: z.string(),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ subname, parentNftId, sender }) => {
+    async ({ subname, parentNftId, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
+            // Handle kiosk-owned NFTs
+            let parentNftArg = parentNftId;
+            let kioskTx;
+            let borrowPromise;
+            if (kioskId && kioskOwnerCapId) {
+                kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                const [borrowedNft, promise] = kioskTx.borrow({ itemType: SUINS_NFT_TYPE, itemId: parentNftId });
+                parentNftArg = borrowedNft;
+                borrowPromise = promise;
+            }
+
             suinsTx.removeLeafSubName({
-                parentNft: parentNftId,
+                parentNft: parentNftArg,
                 name: subname,
             });
+
+            // Return NFT to kiosk if borrowed
+            if (kioskTx && borrowPromise) {
+                kioskTx.return({ itemType: SUINS_NFT_TYPE, item: parentNftArg, promise: borrowPromise });
+                kioskTx.finalize();
+            }
 
             const txBytes = await tx.build({ client: suiClient });
 
@@ -358,17 +422,37 @@ function createServer() {
         nftId: z.string(),
         expirationMs: z.number(),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ nftId, expirationMs, sender }) => {
+    async ({ nftId, expirationMs, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
+            // Handle kiosk-owned NFTs
+            let nftArg = nftId;
+            let kioskTx;
+            let borrowPromise;
+            if (kioskId && kioskOwnerCapId) {
+                kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                const [borrowedNft, promise] = kioskTx.borrow({ itemType: SUINS_NFT_TYPE, itemId: nftId });
+                nftArg = borrowedNft;
+                borrowPromise = promise;
+            }
+
             suinsTx.extendExpiration({
-                nft: nftId,
+                nft: nftArg,
                 expirationTimestampMs: expirationMs,
             });
+
+            // Return NFT to kiosk if borrowed
+            if (kioskTx && borrowPromise) {
+                kioskTx.return({ itemType: SUINS_NFT_TYPE, item: nftArg, promise: borrowPromise });
+                kioskTx.finalize();
+            }
 
             const txBytes = await tx.build({ client: suiClient });
 
@@ -388,21 +472,41 @@ function createServer() {
         contentHash: z.string().optional(),
         walrusSiteId: z.string().optional(),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ nftId, isSubname, avatar, contentHash, walrusSiteId, sender }) => {
+    async ({ nftId, isSubname, avatar, contentHash, walrusSiteId, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
+            // Handle kiosk-owned NFTs
+            let nftArg = nftId;
+            let kioskTx;
+            let borrowPromise;
+            if (kioskId && kioskOwnerCapId) {
+                kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                const [borrowedNft, promise] = kioskTx.borrow({ itemType: SUINS_NFT_TYPE, itemId: nftId });
+                nftArg = borrowedNft;
+                borrowPromise = promise;
+            }
+
             if (avatar) {
-                suinsTx.setUserData({ nft: nftId, key: ALLOWED_METADATA.avatar, value: avatar, isSubname });
+                suinsTx.setUserData({ nft: nftArg, key: ALLOWED_METADATA.avatar, value: avatar, isSubname });
             }
             if (contentHash) {
-                suinsTx.setUserData({ nft: nftId, key: ALLOWED_METADATA.contentHash, value: contentHash, isSubname });
+                suinsTx.setUserData({ nft: nftArg, key: ALLOWED_METADATA.contentHash, value: contentHash, isSubname });
             }
             if (walrusSiteId) {
-                suinsTx.setUserData({ nft: nftId, key: ALLOWED_METADATA.walrusSiteId, value: walrusSiteId, isSubname });
+                suinsTx.setUserData({ nft: nftArg, key: ALLOWED_METADATA.walrusSiteId, value: walrusSiteId, isSubname });
+            }
+
+            // Return NFT to kiosk if borrowed
+            if (kioskTx && borrowPromise) {
+                kioskTx.return({ itemType: SUINS_NFT_TYPE, item: nftArg, promise: borrowPromise });
+                kioskTx.finalize();
             }
 
             const txBytes = await tx.build({ client: suiClient });
@@ -420,15 +524,26 @@ function createServer() {
         nftId: z.string(),
         isSubname: z.boolean().default(false),
         sender: z.string(),
+        kioskId: z.string().optional(),
+        kioskOwnerCapId: z.string().optional(),
     },
-    async ({ nftId, isSubname, sender }) => {
+    async ({ nftId, isSubname, sender, kioskId, kioskOwnerCapId }) => {
         try {
             const tx = new Transaction();
             tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
+            // Handle kiosk-owned NFTs - use take() since burn consumes the NFT
+            let nftArg = nftId;
+            if (kioskId && kioskOwnerCapId) {
+                const kioskTx = new KioskTransaction({ transaction: tx, kioskClient: suiClient.kiosk });
+                kioskTx.setKiosk(tx.object(kioskId)).setKioskCap(tx.object(kioskOwnerCapId));
+                nftArg = kioskTx.take({ itemType: SUINS_NFT_TYPE, itemId: nftId });
+                kioskTx.finalize();
+            }
+
             suinsTx.burnExpired({
-                nft: nftId,
+                nft: nftArg,
                 isSubname,
             });
 
