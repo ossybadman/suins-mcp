@@ -465,7 +465,7 @@ function createServer() {
     });
 
     server.tool('build_extend_expiration_tx',
-    'Build a transaction to extend a subname expiration. Returns unsigned tx bytes.',
+    'Build a transaction to extend a SUBNAME expiration (SubDomainRegistration NFT only, not regular names). Returns unsigned tx bytes.',
     {
         nftId: z.string(),
         expirationMs: z.number(),
