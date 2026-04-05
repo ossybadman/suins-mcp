@@ -69,22 +69,34 @@ function createServer() {
     });
 
     server.tool('get_pricing',
-    'Get current SuiNS registration pricing by name length',
+    'Get current SuiNS registration pricing by name length in USDC, NS, and SUI',
     {},
     async () => {
         try {
             const priceList = await suinsClient.getPriceList();
-            return mcpResponse({ prices: Object.fromEntries(priceList), note: 'Prices are in USDC MIST. 1 USDC = 1,000,000 MIST' });
+            const USDC = formatPrices(priceList);
+            const NS = scaleObj(USDC, 0.75);
+            const suiRate = await getSuiUsdPrice();
+            const result = { USDC, NS };
+            if (suiRate) result.SUI = scaleObj(USDC, 1 / suiRate);
+            result.note = 'Prices per year. NS includes 25% discount. SUI prices are approximate based on live Pyth rate.';
+            return mcpResponse(result);
         } catch (e) { return mcpResponse({ error: e.message }); }
     });
 
     server.tool('get_renewal_pricing',
-    'Get current SuiNS renewal pricing by name length',
+    'Get current SuiNS renewal pricing by name length in USDC, NS, and SUI',
     {},
     async () => {
         try {
             const priceList = await suinsClient.getRenewalPriceList();
-            return mcpResponse({ prices: Object.fromEntries(priceList), note: 'Prices are in USDC MIST. 1 USDC = 1,000,000 MIST' });
+            const USDC = formatPrices(priceList);
+            const NS = scaleObj(USDC, 0.75);
+            const suiRate = await getSuiUsdPrice();
+            const result = { USDC, NS };
+            if (suiRate) result.SUI = scaleObj(USDC, 1 / suiRate);
+            result.note = 'Prices per year. NS includes 25% discount. SUI prices are approximate based on live Pyth rate.';
+            return mcpResponse(result);
         } catch (e) { return mcpResponse({ error: e.message }); }
     });
 
@@ -98,10 +110,12 @@ function createServer() {
         coin: z.string(),
         coinType: z.enum(['USDC', 'SUI', 'NS']),
         recipient: z.string(),
+        sender: z.string(),
     },
-    async ({ name, years, coin, coinType, recipient }) => {
+    async ({ name, years, coin, coinType, recipient, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
             const coinConfig = suinsClient.config.coins[coinType];
 
@@ -136,10 +150,12 @@ function createServer() {
         years: z.number().min(1).max(5),
         coin: z.string(),
         coinType: z.enum(['USDC', 'SUI', 'NS']),
+        sender: z.string(),
     },
-    async ({ nftId, years, coin, coinType }) => {
+    async ({ nftId, years, coin, coinType, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
             const coinConfig = suinsClient.config.coins[coinType];
 
@@ -174,10 +190,12 @@ function createServer() {
         recipient: z.string(),
         allowChildCreation: z.boolean().default(true),
         allowTimeExtension: z.boolean().default(true),
+        sender: z.string(),
     },
-    async ({ subname, parentNftId, expirationMs, recipient, allowChildCreation, allowTimeExtension }) => {
+    async ({ subname, parentNftId, expirationMs, recipient, allowChildCreation, allowTimeExtension, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             const nft = suinsTx.createSubName({
@@ -204,10 +222,12 @@ function createServer() {
         subname: z.string(),
         parentNftId: z.string(),
         targetAddress: z.string(),
+        sender: z.string(),
     },
-    async ({ subname, parentNftId, targetAddress }) => {
+    async ({ subname, parentNftId, targetAddress, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.createLeafSubName({
@@ -230,10 +250,12 @@ function createServer() {
     {
         subname: z.string(),
         parentNftId: z.string(),
+        sender: z.string(),
     },
-    async ({ subname, parentNftId }) => {
+    async ({ subname, parentNftId, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.removeLeafSubName({
@@ -256,10 +278,12 @@ function createServer() {
         nftId: z.string(),
         address: z.string(),
         isSubname: z.boolean().default(false),
+        sender: z.string(),
     },
-    async ({ nftId, address, isSubname }) => {
+    async ({ nftId, address, isSubname, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.setTargetAddress({
@@ -279,10 +303,11 @@ function createServer() {
 
     server.tool('build_set_default_name_tx',
     'Build a transaction to set a .sui name as the default for the signer address. Returns unsigned tx bytes.',
-    { name: z.string() },
-    async ({ name }) => {
+    { name: z.string(), sender: z.string() },
+    async ({ name, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.setDefault(name);
@@ -303,10 +328,12 @@ function createServer() {
         parentNftId: z.string(),
         allowChildCreation: z.boolean(),
         allowTimeExtension: z.boolean(),
+        sender: z.string(),
     },
-    async ({ name, parentNftId, allowChildCreation, allowTimeExtension }) => {
+    async ({ name, parentNftId, allowChildCreation, allowTimeExtension, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.editSetup({
@@ -330,10 +357,12 @@ function createServer() {
     {
         nftId: z.string(),
         expirationMs: z.number(),
+        sender: z.string(),
     },
-    async ({ nftId, expirationMs }) => {
+    async ({ nftId, expirationMs, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.extendExpiration({
@@ -358,10 +387,12 @@ function createServer() {
         avatar: z.string().optional(),
         contentHash: z.string().optional(),
         walrusSiteId: z.string().optional(),
+        sender: z.string(),
     },
-    async ({ nftId, isSubname, avatar, contentHash, walrusSiteId }) => {
+    async ({ nftId, isSubname, avatar, contentHash, walrusSiteId, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             if (avatar) {
@@ -388,10 +419,12 @@ function createServer() {
     {
         nftId: z.string(),
         isSubname: z.boolean().default(false),
+        sender: z.string(),
     },
-    async ({ nftId, isSubname }) => {
+    async ({ nftId, isSubname, sender }) => {
         try {
             const tx = new Transaction();
+            tx.setSender(sender);
             const suinsTx = new SuinsTransaction(suinsClient, tx);
 
             suinsTx.burnExpired({
@@ -409,6 +442,33 @@ function createServer() {
     });
 
     return server;
+}
+
+function formatPrices(priceList) {
+    const map = Object.fromEntries(priceList);
+    return {
+        '3-letter': Number(map[3]) / 1_000_000,
+        '4-letter': Number(map[4]) / 1_000_000,
+        '5+-letter': Number(map[5]) / 1_000_000,
+    };
+}
+
+function scaleObj(obj, factor) {
+    return Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [k, Math.round(v * factor * 100) / 100])
+    );
+}
+
+async function getSuiUsdPrice() {
+    try {
+        const SUI_USD_FEED = '0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744';
+        const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${SUI_USD_FEED}`);
+        const data = await res.json();
+        const p = data.parsed[0].price;
+        return Number(p.price) * Math.pow(10, p.expo);
+    } catch {
+        return null;
+    }
 }
 
 function mcpResponse(data) {
