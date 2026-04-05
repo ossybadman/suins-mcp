@@ -419,20 +419,15 @@ function mcpResponse(data) {
 
 // TRANSPORT
 
-const server = createServer();
-
-const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-});
-
-await server.connect(transport);
+// Map of sessionId -> transport for stateful multi-session support
+const sessions = new Map();
 
 const port = parseInt(process.env.PORT || '3000');
 
 const httpServer = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(200);
@@ -452,14 +447,40 @@ const httpServer = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method === 'POST' && req.url?.startsWith('/mcp')) {
+    if (req.url?.startsWith('/mcp')) {
         try {
-            console.log('Incoming MCP request:', req.url);
+            console.log(`Incoming MCP ${req.method} request:`, req.url);
+            const sessionId = req.headers['mcp-session-id'];
+
+            let transport;
+
+            if (sessionId && sessions.has(sessionId)) {
+                transport = sessions.get(sessionId);
+            } else if (!sessionId && req.method === 'POST') {
+                // New session — create a fresh server + transport
+                const server = createServer();
+                transport = new StreamableHTTPServerTransport({
+                    sessionIdGenerator: () => crypto.randomUUID(),
+                    onsessioninitialized: (id) => {
+                        sessions.set(id, transport);
+                        // Clean up session when it closes
+                        transport.onclose = () => sessions.delete(id);
+                    },
+                });
+                await server.connect(transport);
+            } else {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Bad request: unknown session' }));
+                return;
+            }
+
             await transport.handleRequest(req, res);
         } catch (err) {
             console.error('MCP error:', err);
-            res.writeHead(500);
-            res.end('Internal Server Error');
+            if (!res.headersSent) {
+                res.writeHead(500);
+                res.end('Internal Server Error');
+            }
         }
         return;
     }
