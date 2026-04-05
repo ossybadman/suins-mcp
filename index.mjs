@@ -75,12 +75,12 @@ function createServer() {
         try {
             const priceList = await suinsClient.getPriceList();
             const USDC = formatPrices(priceList);
-            const NS = scaleObj(USDC, 0.75);
-            const suiRate = await getSuiUsdPrice();
-            const result = { USDC, NS };
-            if (suiRate) result.SUI = scaleObj(USDC, 1 / suiRate);
-            result.note = 'Prices per year. NS includes 25% discount. SUI prices are approximate based on live Pyth rate.';
-            return mcpResponse(result);
+            return mcpResponse({
+                USDC,
+                SUI: 'calculated by Pyth oracle at tx execution time',
+                NS: 'calculated by Pyth oracle at tx execution time (25% discount applied)',
+                note: 'Only USDC prices are fixed. SUI and NS amounts are determined on-chain. See https://docs.suins.io/developer/sdk/querying',
+            });
         } catch (e) { return mcpResponse({ error: e.message }); }
     });
 
@@ -91,12 +91,12 @@ function createServer() {
         try {
             const priceList = await suinsClient.getRenewalPriceList();
             const USDC = formatPrices(priceList);
-            const NS = scaleObj(USDC, 0.75);
-            const suiRate = await getSuiUsdPrice();
-            const result = { USDC, NS };
-            if (suiRate) result.SUI = scaleObj(USDC, 1 / suiRate);
-            result.note = 'Prices per year. NS includes 25% discount. SUI prices are approximate based on live Pyth rate.';
-            return mcpResponse(result);
+            return mcpResponse({
+                USDC,
+                SUI: 'calculated by Pyth oracle at tx execution time',
+                NS: 'calculated by Pyth oracle at tx execution time (25% discount applied)',
+                note: 'Only USDC prices are fixed. SUI and NS amounts are determined on-chain. See https://docs.suins.io/developer/sdk/querying',
+            });
         } catch (e) { return mcpResponse({ error: e.message }); }
     });
 
@@ -445,31 +445,16 @@ function createServer() {
 }
 
 function formatPrices(priceList) {
+    // priceList is a Map with tuple keys like [minLen, maxLen]
+    // Convert to object with string keys like "3,3", "4,4", "5,63"
     const map = Object.fromEntries(priceList);
     return {
-        '3-letter': Number(map[3]) / 1_000_000,
-        '4-letter': Number(map[4]) / 1_000_000,
-        '5+-letter': Number(map[5]) / 1_000_000,
+        '3-letter': Number(map['3,3']) / 1_000_000,
+        '4-letter': Number(map['4,4']) / 1_000_000,
+        '5+-letter': Number(map['5,63']) / 1_000_000,
     };
 }
 
-function scaleObj(obj, factor) {
-    return Object.fromEntries(
-        Object.entries(obj).map(([k, v]) => [k, Math.round(v * factor * 100) / 100])
-    );
-}
-
-async function getSuiUsdPrice() {
-    try {
-        const SUI_USD_FEED = '0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744';
-        const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${SUI_USD_FEED}`);
-        const data = await res.json();
-        const p = data.parsed[0].price;
-        return Number(p.price) * Math.pow(10, p.expo);
-    } catch {
-        return null;
-    }
-}
 
 function mcpResponse(data) {
     return {
